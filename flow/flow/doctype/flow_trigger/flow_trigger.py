@@ -7,7 +7,8 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
-DOC_EVENTS = frozenset({"after_insert", "on_update", "on_submit", "on_cancel", "on_trash"})
+# Single source of truth: the same set the dispatch hook gates on.
+from flow.triggers.triggers import DOC_EVENTS
 
 
 class FlowTrigger(Document):
@@ -23,9 +24,11 @@ class FlowTrigger(Document):
 		auto_approve: DF.Check
 		condition: DF.Code | None
 		cron_expression: DF.Data | None
-		doc_event: DF.Literal[None, "after_insert", "on_update", "on_submit", "on_cancel", "on_trash"]
+		doc_event: DF.Literal[
+			None, "after_insert", "on_update", "on_update_after_submit", "on_submit", "on_cancel", "on_trash"
+		]
 		enabled: DF.Check
-		event: DF.Literal["DocType Event", "Scheduled"]
+		event: DF.Literal["DocType Event", "Scheduled", "Manual"]
 		last_fired_at: DF.Datetime | None
 		prompt_template: DF.Code
 		run_as: DF.Link | None
@@ -59,6 +62,13 @@ class FlowTrigger(Document):
 				frappe.throw(_("Invalid Doc Event: {0}").format(self.doc_event))
 		elif self.event == "Scheduled" and not self.cron_expression:
 			frappe.throw(_("Cron Expression is required for Scheduled triggers."))
+		elif self.event == "Manual":
+			if not self.target_doctype:
+				frappe.throw(_("Target DocType is required for Manual triggers."))
+			# Nothing dispatches a Manual trigger, so a doc_event or a cron left over from an
+			# earlier event type would read as "this fires on its own" without ever firing.
+			self.doc_event = None
+			self.cron_expression = None
 
 	def _validate_cron(self):
 		if self.event != "Scheduled" or not self.cron_expression:

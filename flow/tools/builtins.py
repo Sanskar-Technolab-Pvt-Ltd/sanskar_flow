@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any, Literal
 
 import frappe
@@ -13,6 +14,11 @@ from flow.lib.tool import Tool, tool
 from flow.utils.safe_exec import safe_exec
 
 MAX_READ_LIMIT = 200
+MAX_FILE_TEXT_CHARS = 40_000
+MAX_FILE_BYTES = 20 * 1024 * 1024
+FILE_TEXT_CACHE_PREFIX = "flow_file_text"
+FILE_TEXT_CACHE_TTL = 3600
+_FILE_MATCH_LIMIT = 20
 LAYOUT_FIELDTYPES = frozenset({"Section Break", "Column Break", "Tab Break", "HTML", "Heading"})
 _CONFIRM_STR_LIMIT = 120
 _ERROR_LIMIT = 300
@@ -101,6 +107,124 @@ def read(
 		limit=limit,
 		order_by=order_by,
 	)
+
+
+@tool
+def read_file(file: str, offset: int = 0, limit: int = MAX_FILE_TEXT_CHARS) -> dict[str, Any]:
+	"""Read a document's text — a resume, contract, invoice, spreadsheet or scan — from an attachment or link.
+
+	`file` accepts a File record name, the path stored in an Attach field
+	(e.g. "/files/resume.pdf" or "/private/files/resume.pdf"), or a public http(s) URL.
+	To list what is attached to a record:
+	read("File", filters={"attached_to_doctype": ..., "attached_to_name": ...},
+	fields=["name", "file_name", "file_url"]).
+
+	Reads pdf, docx, xlsx, html and plain-text formats (txt, md, csv, json, yaml, …).
+	Scanned pages and images are OCR'd, and tables come back as markdown, so a PDF with
+	no text layer still returns its content.
+
+	Long documents come back one window at a time: the result carries `length` (the full
+	document's character count) and, when more remains, `next_offset` — call again with
+	that value as `offset` to read on.
+
+	Reading enforces the current user's permission on the file and on the record it is
+	attached to, exactly like `read`.
+	"""
+	from flow.knowledge.extract import extract_url
+
+	limit = min(max(int(limit), 1), MAX_FILE_TEXT_CHARS)
+	offset = max(int(offset), 0)
+	reference = _normalize_file_reference(file)
+	if not reference:
+		raise ValueError("Pass a File name, an attachment path like /files/resume.pdf, or an http(s) URL.")
+
+	if reference.startswith(("http://", "https://")):
+		source: dict[str, Any] = {"url": reference}
+		text = extract_url(reference)
+	else:
+		file_doc = _resolve_file(reference)
+		source = {"file": file_doc.name, "file_name": file_doc.file_name, "file_url": file_doc.file_url}
+		text = _file_text(file_doc)
+
+	return {**source, **_text_window(text, offset, limit)}
+
+
+def _normalize_file_reference(reference: str) -> str:
+	"""Trim, and rewrite a link to this site's own files as a site path — those resolve to a
+	File record (permission-checked) instead of being fetched back over HTTP."""
+	from frappe.utils import get_url
+
+	reference = (reference or "").strip()
+	site_url = (get_url() or "").rstrip("/")
+	if site_url and reference.startswith(site_url + "/"):
+		reference = reference[len(site_url) :]
+	return reference
+
+
+def _resolve_file(reference: str) -> Any:
+	"""Resolve a File name or attachment path to a File doc the current user may read.
+	Names are looked up unfiltered, then each candidate is permission-checked — a file_url
+	can belong to more than one File row."""
+	from urllib.parse import unquote, urlparse
+
+	names = [reference] if frappe.db.exists("File", reference) else []
+	if not names:
+		names = frappe.get_all(
+			"File",
+			filters={"file_url": unquote(urlparse(reference).path)},
+			pluck="name",
+			order_by="creation desc",
+			limit=_FILE_MATCH_LIMIT,
+		)
+	if not names:
+		raise FileNotFoundError(
+			f"No File record matches {reference!r}. List a record's attachments with "
+			'read("File", filters={"attached_to_doctype": ..., "attached_to_name": ...}, '
+			'fields=["name", "file_name", "file_url"]).'
+		)
+
+	files = [doc for doc in (frappe.get_doc("File", name) for name in names) if not doc.is_folder]
+	if not files:
+		raise ValueError(f"{reference} is a folder, not a readable file.")
+	for doc in files:
+		if frappe.has_permission("File", "read", doc=doc):
+			return doc
+	raise PermissionError(f"No permission to read file {reference}")
+
+
+def _file_text(file_doc: Any) -> str:
+	"""Extract a file's text, briefly cached — OCR is expensive and an agent often re-reads
+	the same document across turns."""
+	from flow.knowledge.extract import FILE_EXTENSIONS, extract_file
+
+	extension = os.path.splitext(file_doc.file_name or file_doc.file_url or "")[1].lower().lstrip(".")
+	if extension not in FILE_EXTENSIONS:
+		raise ValueError(
+			f"Cannot read .{extension or '?'} files. Readable types: {', '.join(sorted(FILE_EXTENSIONS))}."
+		)
+	if (file_doc.file_size or 0) > MAX_FILE_BYTES:
+		raise ValueError(
+			f"{file_doc.file_name} is {file_doc.file_size} bytes; the limit is {MAX_FILE_BYTES}."
+		)
+
+	key = f"{FILE_TEXT_CACHE_PREFIX}:{file_doc.name}:{file_doc.content_hash or file_doc.modified}"
+	text = frappe.cache.get_value(key)
+	if text is None:
+		text = extract_file(file_doc)
+		frappe.cache.set_value(key, text, expires_in_sec=FILE_TEXT_CACHE_TTL)
+	return text
+
+
+def _text_window(text: str, offset: int, limit: int) -> dict[str, Any]:
+	"""One window of a long document, with a cursor when more remains."""
+	text = text or ""
+	window = text[offset : offset + limit]
+	page: dict[str, Any] = {"text": window, "offset": offset, "length": len(text)}
+	if offset + len(window) < len(text):
+		page["next_offset"] = offset + len(window)
+	if not text:
+		page["note"] = "No readable text found in this file."
+	return page
 
 
 KNOWLEDGE_SEARCH_SLUG = "search_knowledge"
@@ -220,6 +344,8 @@ def execute(code: str, description: str) -> Any:
 	  fields=[{"SUM": "qty", "as": "total"}] or [{"COUNT": "*", "as": "n"}]),
 	  frappe.get_doc (returns a dict), frappe.get_meta, frappe.db.get_value/get_single_value/count/exists.
 	- Writes: create, update, delete, run_action — the same permission-checked tools you call directly.
+	- Files: read_file — plain text out of an attachment or public URL (pdf, docx, xlsx,
+	  images and scans are OCR'd). Pass a File name, an Attach field's path, or a URL.
 	- Also: read, describe, find_doctypes, frappe.call (whitelisted methods), frappe.enqueue,
 	  frappe.sendmail, frappe.get_print, frappe.utils.* (dates, numbers, strings).
 
@@ -236,8 +362,67 @@ def execute(code: str, description: str) -> Any:
 
 	The user approves each call before it runs.
 	"""
-	exec_globals, _locals = safe_exec(code, script_filename="ai_execute")
+	try:
+		exec_globals, _locals = safe_exec(code, script_filename="ai_execute")
+	except Exception as e:
+		# A bare sandbox error ("__import__ not found") tells the model nothing about what to
+		# change, so it retries the same shape and burns the iteration budget. Append the
+		# correction so the next attempt is different.
+		message = _error_text(e)
+		hint = _sandbox_hint(message)
+		raise RuntimeError(f"{message} — {hint}" if hint else message) from e
 	return exec_globals.get("result")
+
+
+# Sandbox rejections the model cannot diagnose from the raw message alone. Each hint says what
+# to write instead, and that retrying the same construct is pointless.
+_SANDBOX_HINTS: tuple[tuple[str, str], ...] = (
+	(
+		"__import__ not found",
+		"imports are blocked. Remove the import line entirely; `frappe` and `frappe.utils` are "
+		"already in scope, so call them directly (e.g. `frappe.utils.getdate(...)`). Retrying "
+		"with a different import will fail the same way.",
+	),
+	(
+		"no attribute 'sql'",
+		"frappe.db.sql is unavailable. Use frappe.get_list(doctype, filters=..., fields=...).",
+	),
+	(
+		"no attribute 'get_all'",
+		"frappe.get_all is unavailable. Use frappe.get_list(...) instead.",
+	),
+	(
+		"no attribute 'new_doc'",
+		"frappe.new_doc is unavailable. Create records with the `create` tool, not in execute.",
+	),
+	(
+		"no attribute 'set_value'",
+		"frappe.db.set_value is unavailable. Change records with the `update` tool, not in execute.",
+	),
+	(
+		"object is not callable",
+		"that method is not exposed in the sandbox (doc.insert()/doc.save() included). Use the "
+		"`create` and `update` tools to write records.",
+	),
+	(
+		"permission to access field",
+		"that field name does not exist on the doctype (frappe reports an unknown filter/field as a "
+		"permission error). Call `describe` on the doctype to get the real fieldnames before "
+		"filtering on them again — do not guess a synonym.",
+	),
+	(
+		"unsafe attribute",
+		"that attribute is blocked by the sandbox. str.format() is not allowed (use an f-string "
+		"or % formatting), and neither is any name starting with an underscore.",
+	),
+)
+
+
+def _sandbox_hint(message: str) -> str | None:
+	for needle, hint in _SANDBOX_HINTS:
+		if needle in message:
+			return hint
+	return None
 
 
 def _error_text(e: Exception) -> str:
@@ -469,6 +654,7 @@ BUILTIN_TOOLS: list[Tool] = [
 	find_doctypes,
 	describe,
 	read,
+	read_file,
 	search_knowledge,
 	update_memory,
 	create,

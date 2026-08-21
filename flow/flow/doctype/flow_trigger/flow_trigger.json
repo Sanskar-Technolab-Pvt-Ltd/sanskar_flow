@@ -57,18 +57,18 @@
   },
   {
    "default": "DocType Event",
-   "description": "What kind of event fires this trigger.",
+   "description": "What kind of event fires this trigger. <b>Manual</b> triggers never fire on their own \u2014 nothing dispatches them until something calls <code>flow.triggers.fire_manual()</code>, so they are the shape to use for a button on a form.",
    "fieldname": "event",
    "fieldtype": "Select",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Event",
-   "options": "DocType Event\nScheduled",
+   "options": "DocType Event\nScheduled\nManual",
    "reqd": 1
   },
   {
    "default": "0",
-   "description": "Run this trigger's tool calls without asking for approval. Required for unattended triggers — otherwise the run pauses waiting for a confirmation.",
+   "description": "Run this trigger's tool calls without asking for approval. Required for unattended triggers \u2014 otherwise the run pauses waiting for a confirmation.",
    "fieldname": "auto_approve",
    "fieldtype": "Check",
    "label": "Auto Approve Tool Calls"
@@ -86,13 +86,13 @@
    "label": "When"
   },
   {
-   "depends_on": "eval:doc.event === 'DocType Event'",
-   "description": "DocType whose events fire this trigger.",
+   "depends_on": "eval:doc.event !== 'Scheduled'",
+   "description": "DocType this trigger acts on. For a DocType Event it is the doctype whose events fire the trigger; for a Manual trigger it is the doctype the caller passes a document of.",
    "fieldname": "target_doctype",
    "fieldtype": "Link",
    "in_standard_filter": 1,
    "label": "Target DocType",
-   "mandatory_depends_on": "eval:doc.event === 'DocType Event'",
+   "mandatory_depends_on": "eval:doc.event !== 'Scheduled'",
    "options": "DocType"
   },
   {
@@ -102,7 +102,7 @@
    "fieldtype": "Select",
    "label": "Doc Event",
    "mandatory_depends_on": "eval:doc.event === 'DocType Event'",
-   "options": "\nafter_insert\non_update\non_submit\non_cancel\non_trash"
+   "options": "\nafter_insert\non_update\non_update_after_submit\non_submit\non_cancel\non_trash"
   },
   {
    "fieldname": "column_break_when",
@@ -158,7 +158,7 @@
    "link_fieldname": "trigger"
   }
  ],
- "modified": "2026-07-14 00:00:00.000000",
+ "modified": "2026-08-20 13:00:00.000000",
  "modified_by": "Administrator",
  "module": "Flow",
  "name": "Flow Trigger",

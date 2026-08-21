@@ -39,7 +39,8 @@
    "description": "API key for this provider. Leave empty for local servers (Ollama, LM Studio) that don't require authentication.",
    "fieldname": "api_key",
    "fieldtype": "Password",
-   "label": "API Key"
+   "label": "API Key",
+   "length": 200
   },
   {
    "description": "Optional. Override the provider's default endpoint, e.g. a proxy or self-hosted gateway.",
@@ -61,7 +62,7 @@
   }
  ],
  "links": [],
- "modified": "2026-05-30 00:00:00.000000",
+ "modified": "2026-08-21 15:30:00.000000",
  "modified_by": "Administrator",
  "module": "Flow",
  "name": "Flow Provider",

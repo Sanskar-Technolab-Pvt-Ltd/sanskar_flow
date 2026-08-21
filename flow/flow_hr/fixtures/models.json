@@ -1,0 +1,43 @@
+{
+	"providers": [
+		{
+			"provider": "mistral",
+			"enabled": 1,
+			"base_url": null
+		},
+		{
+			"provider": "openai",
+			"enabled": 1,
+			"base_url": null
+		}
+	],
+	"models": [
+		{
+			"title": "Mistral",
+			"provider": "mistral",
+			"model_id": "mistral/open-mistral-7b",
+			"context_window": 32000,
+			"enabled": 1,
+			"base_url": null,
+			"params": null
+		},
+		{
+			"title": "OpenAI - Embedding Model",
+			"provider": "openai",
+			"model_id": "openai/text-embedding-3-small",
+			"context_window": 8191,
+			"enabled": 1,
+			"base_url": null,
+			"params": null
+		},
+		{
+			"title": "GPT-4.1",
+			"provider": "openai",
+			"model_id": "openai/gpt-4.1",
+			"context_window": 1047576,
+			"enabled": 1,
+			"base_url": null,
+			"params": null
+		}
+	]
+}

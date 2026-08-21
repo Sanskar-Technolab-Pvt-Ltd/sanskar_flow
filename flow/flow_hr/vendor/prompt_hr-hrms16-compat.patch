@@ -1,0 +1,244 @@
+diff --git a/prompt_hr/hooks.py b/prompt_hr/hooks.py
+index 21c9d7f..c519055 100644
+--- a/prompt_hr/hooks.py
++++ b/prompt_hr/hooks.py
+@@ -377,7 +377,8 @@ doc_events = {
+     "Full and Final Statement": {
+         "on_update": "prompt_hr.py.full_and_final_statement.on_update",
+         "before_submit": "prompt_hr.py.full_and_final_statement.before_submit",
+-        "before_insert": "prompt_hr.py.full_and_final_statement.before_insert",
++        # ? before_insert is intentionally not hooked: its handler
++        # ? (custom_exit_checklist_status) is commented out in the module.
+         "on_submit": "prompt_hr.py.full_and_final_statement.on_submit",
+     },
+     "Travel Request": {
+diff --git a/prompt_hr/overrides/salary_slip_override.py b/prompt_hr/overrides/salary_slip_override.py
+index 60df58a..e712925 100644
+--- a/prompt_hr/overrides/salary_slip_override.py
++++ b/prompt_hr/overrides/salary_slip_override.py
+@@ -20,6 +20,52 @@ class CustomSalarySlip(SalarySlip):
+     def __init__(self, *args, **kwargs):
+         super().__init__(*args, **kwargs)
+ 
++    # ? SALARY STRUCTURE DOC USED BY THE OVERRIDES BELOW
++    # ! hrms used to stash the Salary Structure document on the slip while computing
++    # ! (self._salary_structure_doc = frappe.get_cached_doc(...)). hrms 16 removed it entirely —
++    # ! components now resolve from the Salary Structure Assignment via _evaluated_components —
++    # ! but calculate_net_pay, compute_income_tax_breakup and
++    # ! evaluate_and_update_structure_formula below still read it, so every Salary Slip
++    # ! computation died with "AttributeError: 'CustomSalarySlip' object has no attribute
++    # ! '_salary_structure_doc'". Rebuild it lazily, the same way old hrms did.
++    @property
++    def _salary_structure_doc(self):
++        cached = self.__dict__.get("_ss_structure_doc")
++        if cached is None and self.get("salary_structure"):
++            cached = self._build_structure_snapshot(self.get("salary_structure"))
++            self.__dict__["_ss_structure_doc"] = cached
++        return cached
++
++    @staticmethod
++    def _build_structure_snapshot(salary_structure):
++        """Salary Structure rows in the shape hrms 16 expects when evaluating a formula.
++
++        hrms 16's eval_condition_and_formula is written for a row already resolved from the
++        Salary Structure Assignment: its condition/formula are single-line and its `precision`
++        is a plain int. A raw Salary Structure child row is neither — the formula still has the
++        newlines the author typed (which raises SyntaxError, e.g. "expected 'else' after 'if'"),
++        and `precision` is a bound method. So snapshot the rows into plain dicts with both
++        normalised. A snapshot also means nothing here can mutate the cached Salary Structure.
++        """
++        from hrms.payroll.utils import sanitize_expression
++
++        structure = frappe.get_cached_doc("Salary Structure", salary_structure)
++        snapshot = frappe._dict({"name": structure.name})
++        for section in ("earnings", "deductions"):
++            rows = []
++            for row in structure.get(section) or []:
++                normalised = frappe._dict(row.as_dict())
++                normalised.condition = sanitize_expression(row.get("condition"))
++                normalised.formula = sanitize_expression(row.get("formula"))
++                normalised.precision = row.precision("amount")
++                rows.append(normalised)
++            snapshot[section] = rows
++        return snapshot
++
++    @_salary_structure_doc.setter
++    def _salary_structure_doc(self, value):
++        self.__dict__["_ss_structure_doc"] = value
++
+     def validate(self):
+         self.check_salary_withholding()
+         self.status = self.get_status()
+diff --git a/prompt_hr/prompt_hr/doctype/employee_standard_salary/employee_standard_salary.py b/prompt_hr/prompt_hr/doctype/employee_standard_salary/employee_standard_salary.py
+index 04d29e3..53ca843 100644
+--- a/prompt_hr/prompt_hr/doctype/employee_standard_salary/employee_standard_salary.py
++++ b/prompt_hr/prompt_hr/doctype/employee_standard_salary/employee_standard_salary.py
+@@ -4,12 +4,9 @@
+ import frappe
+ from frappe.model.document import Document
+ from frappe import _
+-from hrms.payroll.doctype.salary_slip.salary_slip import SalarySlip, _safe_eval, get_salary_component_data
+-from frappe.utils import (
+-    ceil, floor, flt, cint, get_first_day,
+-    get_last_day, getdate, rounded
+-)
+-from datetime import date
++from hrms.payroll.doctype.salary_slip.salary_slip import get_salary_component_data
++from hrms.payroll.utils import COMPONENT_EVAL_GLOBALS, _safe_eval, get_component_abbr_map
++from frappe.utils import flt, cint
+ 
+ 
+ class EmployeeStandardSalary(Document):
+@@ -53,19 +50,7 @@ class EmployeeStandardSalary(Document):
+         self._salary_structure_doc = frappe.get_doc("Salary Structure", self.salary_structure)
+ 
+         # * Setup globals for formula evaluation
+-        self.whitelisted_globals = {
+-            "int": int,
+-            "float": float,
+-            "long": int,
+-            "round": round,
+-            "rounded": rounded,
+-            "date": date,
+-            "getdate": getdate,
+-            "get_first_day": get_first_day,
+-            "get_last_day": get_last_day,
+-            "ceil": ceil,
+-            "floor": floor,
+-        }
++        self.whitelisted_globals = COMPONENT_EVAL_GLOBALS.copy()
+ 
+ 
+         # Clear previous earnings/deductions
+@@ -134,7 +119,7 @@ class EmployeeStandardSalary(Document):
+ 
+         # * Merge fields from current document
+         data.update(self.as_dict())
+-        data.update(SalarySlip.get_component_abbr_map(self))
++        data.update(get_component_abbr_map())
+ 
+         # Prepare shallow copy for default data
+         default_data = data.copy()
+diff --git a/prompt_hr/py/full_and_final_statement.py b/prompt_hr/py/full_and_final_statement.py
+index 7f343ab..f7df728 100644
+--- a/prompt_hr/py/full_and_final_statement.py
++++ b/prompt_hr/py/full_and_final_statement.py
+@@ -295,27 +295,27 @@ def before_submit(doc, method=None):
+ 
+ # # ? FUNCTION TO GET SORTED CHECKLIST STATUS FROM EMPLOYEE
+ # def get_sorted_exit_checklist_status_from_employee(employee):
+-    if not employee:
+-        return []
+-
+-    # ? Fetch existing checklist rows from Employee
+-    employee_rows = frappe.get_all(
+-        "Exit Checklist Status",
+-        filters={"parenttype": "Employee", "parent": employee},
+-        fields=["department", "status"]
+-    )
+-
+-    # ? Hardcoded alphabetical department order
+-    department_order = [
+-        "IT",
+-        "Engineering"
+-    ]
+-
+-    # ? Convert fetched rows to a map
+-    status_map = {row["department"]: row["status"] for row in employee_rows}
+-
+-    # ? Return sorted checklist rows (fallback to 'Pending')
+-    return [
+-        {"department": dept, "status": status_map.get(dept, "Pending")}
+-        for dept in department_order
+-    ]
+\ No newline at end of file
++#     if not employee:
++#         return []
++#
++#     # ? Fetch existing checklist rows from Employee
++#     employee_rows = frappe.get_all(
++#         "Exit Checklist Status",
++#         filters={"parenttype": "Employee", "parent": employee},
++#         fields=["department", "status"]
++#     )
++#
++#     # ? Hardcoded alphabetical department order
++#     department_order = [
++#         "IT",
++#         "Engineering"
++#     ]
++#
++#     # ? Convert fetched rows to a map
++#     status_map = {row["department"]: row["status"] for row in employee_rows}
++#
++#     # ? Return sorted checklist rows (fallback to 'Pending')
++#     return [
++#         {"department": dept, "status": status_map.get(dept, "Pending")}
++#         for dept in department_order
++#     ]
+\ No newline at end of file
+diff --git a/prompt_hr/py/job_offer.py b/prompt_hr/py/job_offer.py
+index 77fb068..5469040 100644
+--- a/prompt_hr/py/job_offer.py
++++ b/prompt_hr/py/job_offer.py
+@@ -3,12 +3,9 @@ import json
+ from frappe.utils.print_format import download_pdf
+ from frappe.utils.file_manager import save_file
+ from prompt_hr.py.utils import create_hash,send_notification_email, get_email_ids_for_roles, get_roles_from_hr_settings_by_module, send_notification_email_employee_letter_approval
+-from hrms.payroll.doctype.salary_slip.salary_slip import SalarySlip, _safe_eval, get_salary_component_data
+-from frappe.utils import (
+-    ceil, floor, flt, cint, get_first_day,
+-    get_last_day, getdate, rounded
+-)
+-from datetime import date
++from hrms.payroll.doctype.salary_slip.salary_slip import get_salary_component_data
++from hrms.payroll.utils import COMPONENT_EVAL_GLOBALS, _safe_eval, get_component_abbr_map
++from frappe.utils import flt, cint
+ from frappe.utils.pdf import get_pdf
+ from frappe.www.printview import get_print_format
+ from frappe import _
+@@ -533,19 +530,7 @@ def set_salary_components_with_amount(doc):
+     doc._salary_structure_doc = frappe.get_doc("Salary Structure", doc.custom_salary_structure)
+ 
+     # * Setup globals for formula evaluation
+-    doc.whitelisted_globals = {
+-        "int": int,
+-        "float": float,
+-        "long": int,
+-        "round": round,
+-        "rounded": rounded,
+-        "date": date,
+-        "getdate": getdate,
+-        "get_first_day": get_first_day,
+-        "get_last_day": get_last_day,
+-        "ceil": ceil,
+-        "floor": floor,
+-    }
++    doc.whitelisted_globals = COMPONENT_EVAL_GLOBALS.copy()
+ 
+ 
+     # Clear previous earnings/deductions
+@@ -683,7 +668,7 @@ def get_data_for_eval(doc, gross_pay=None):
+ 
+     # * Merge fields from current document
+     data.update(doc.as_dict())
+-    data.update(SalarySlip.get_component_abbr_map(doc))
++    data.update(get_component_abbr_map())
+ 
+     if not data.get("base"):
+         data["base"] = doc.custom_monthly_base_salary
+diff --git a/prompt_hr/py/leave_application.py b/prompt_hr/py/leave_application.py
+index 1f3dcce..56f4951 100644
+--- a/prompt_hr/py/leave_application.py
++++ b/prompt_hr/py/leave_application.py
+@@ -293,7 +293,9 @@ def validate(doc, method=None):
+         # ? ALLOWED DAYS INCLUDE TODAY ALSO (EXAMPLE :- IF TODAY'S IS 18 DATE THEN EMPLOYEE'S APPLY ONLY UPTO 9 DATE (9,10,11,12,13,14,15,16,17,18))
+         allowed_days = frappe.db.get_single_value("HR Settings", "custom_maximum_backdated_leave_days_including_today")
+         if allowed_days:
+-            if doc.from_date < add_days(today(), -(allowed_days-1)):
++            # ? BOTH SIDES MUST BE dates: add_days(today(), ...) RETURNS A STRING, AND
++            # ? COMPARING IT TO doc.from_date (A date BY THIS POINT) RAISES TypeError.
++            if getdate(doc.from_date) < getdate(add_days(today(), -(allowed_days-1))):
+                 frappe.throw(_("You cannot apply leave for more than {0} days in the past.").format(allowed_days))
+ 
+     validate_festival_leave_condition(doc)

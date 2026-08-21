@@ -7,6 +7,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests import IntegrationTestCase
 
+from flow.flow.doctype.flow_agent.flow_agent import DEFAULT_TOOL_SLUGS
 from flow.lib.agent import Agent
 from flow.lib.model import ChatResponse, Model
 from flow.tools.builtins import sync_builtin_tools
@@ -55,7 +56,7 @@ class TestFlowAgentDefaults(IntegrationTestCase):
 	def test_default_tools_populated_on_insert(self):
 		doc = frappe.get_doc(_agent(self.model_doc.name)).insert()
 
-		self.assertEqual([row.tool for row in doc.tools], ["describe", "read", "execute"])
+		self.assertEqual([row.tool for row in doc.tools], list(DEFAULT_TOOL_SLUGS))
 
 	def test_explicit_tools_override_defaults(self):
 		doc = frappe.get_doc(_agent(self.model_doc.name, tools=[{"tool": "read"}])).insert()
@@ -88,7 +89,7 @@ class TestFlowAgentAssemble(IntegrationTestCase):
 		self.assertIsInstance(runtime, Agent)
 		self.assertEqual(runtime.name, self.agent_doc.name)
 		self.assertEqual(runtime.instructions, "Be terse.")
-		self.assertEqual(sorted(t.name for t in runtime.tools), ["describe", "execute", "read"])
+		self.assertEqual(sorted(t.name for t in runtime.tools), sorted(DEFAULT_TOOL_SLUGS))
 		self.assertEqual(runtime.max_iterations, 5)
 
 	def test_assemble_uses_default_iterations_when_unset(self):
@@ -118,7 +119,7 @@ class TestFlowAgentAssemble(IntegrationTestCase):
 
 		runtime = self.agent_doc.assemble()
 
-		self.assertEqual(sorted(t.name for t in runtime.tools), ["describe", "execute"])
+		self.assertEqual(sorted(t.name for t in runtime.tools), sorted(set(DEFAULT_TOOL_SLUGS) - {"read"}))
 
 
 class TestFlowAgentKnowledgeSearch(IntegrationTestCase):
@@ -217,7 +218,7 @@ class TestFlowAgentRun(IntegrationTestCase):
 		snapshot = json.loads(ai_run.config_snapshot)
 		self.assertEqual(snapshot["title"], "Test Agent")
 		self.assertEqual(snapshot["model"], self.model_doc.name)
-		self.assertEqual(sorted(snapshot["tools"]), ["describe", "execute", "read"])
+		self.assertEqual(sorted(snapshot["tools"]), sorted(DEFAULT_TOOL_SLUGS))
 		self.assertEqual(snapshot["max_iterations"], 5)
 
 	def test_run_accepts_source_param(self):

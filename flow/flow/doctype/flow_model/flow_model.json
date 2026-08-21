@@ -63,7 +63,8 @@
    "description": "API key to authenticate with this model's endpoint. Needed when no Provider is linked.",
    "fieldname": "api_key",
    "fieldtype": "Password",
-   "label": "API Key"
+   "label": "API Key",
+   "length": 200
   },
   {
    "depends_on": "eval:!doc.provider",
@@ -86,7 +87,7 @@
   }
  ],
  "links": [],
- "modified": "2026-07-04 00:00:00.000000",
+ "modified": "2026-08-21 15:30:00.000000",
  "modified_by": "Administrator",
  "module": "Flow",
  "name": "Flow Model",

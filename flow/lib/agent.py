@@ -453,10 +453,14 @@ def _has_denial(answers: dict[str, Any]) -> bool:
 
 
 def _serialize_tool_result(result: Any) -> str:
+	# Never return an empty string. litellm's Mistral transform drops any message whose content
+	# is "" (its empty-assistant check is not role-scoped), which silently deletes the tool
+	# response and leaves the conversation ending on an assistant message -> provider 400
+	# "Expected last role User or Tool ... but got assistant". A placeholder keeps the pairing.
 	if isinstance(result, str):
-		return result
+		return result or "(no output)"
 	if result is None:
-		return ""
+		return "null"
 	try:
 		return json.dumps(result, default=str)
 	except (TypeError, ValueError):

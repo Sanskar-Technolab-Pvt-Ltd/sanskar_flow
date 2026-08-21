@@ -63,9 +63,15 @@ def extract_file(file_doc) -> str:
 
 
 def _extract_url_source(source) -> list[ExtractedDoc]:
+	return _single(extract_url(source.url))
+
+
+def extract_url(url: str) -> str:
+	"""Fetch a public http(s) URL and extract plain text. Blocks internal addresses and
+	caps the download, so any caller can hand it a user-supplied link."""
 	import requests
 
-	url = (source.url or "").strip()
+	url = (url or "").strip()
 	_validate_public_url(url)
 	response = requests.get(
 		url, timeout=URL_TIMEOUT, stream=True, headers={"User-Agent": "Flow-Knowledge/1.0"}
@@ -78,7 +84,7 @@ def _extract_url_source(source) -> list[ExtractedDoc]:
 		text = _extract_pdf(raw)
 	else:
 		text = _extract_html(_as_text(raw))
-	return _single(text.strip())
+	return text.strip()
 
 
 def resolve_content_fields(meta, raw) -> list[str]:

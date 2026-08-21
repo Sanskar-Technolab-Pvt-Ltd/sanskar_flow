@@ -6,12 +6,14 @@ from frappe.tests import IntegrationTestCase
 
 from flow.tools.builtins import (
 	BUILTIN_TOOLS,
+	MAX_FILE_TEXT_CHARS,
 	create,
 	delete,
 	describe,
 	execute,
 	find_doctypes,
 	read,
+	read_file,
 	sync_builtin_tools,
 	update,
 )
@@ -88,6 +90,80 @@ class TestRead(IntegrationTestCase):
 		frappe.get_doc({"doctype": "ToDo", "description": "fields probe"}).insert()
 		rows = read(doctype="ToDo", filters={"description": "fields probe"}, fields=["name", "description"])
 		self.assertEqual(rows[0]["description"], "fields probe")
+
+
+class TestReadFile(IntegrationTestCase):
+	def setUp(self):
+		self.todo = frappe.get_doc({"doctype": "ToDo", "description": "read_file host"}).insert()
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+		frappe.db.rollback()
+
+	def _attach(self, content: bytes | str, file_name: str, is_private: int = 0):
+		return frappe.get_doc(
+			{
+				"doctype": "File",
+				"file_name": file_name,
+				"content": content,
+				"is_private": is_private,
+				"attached_to_doctype": "ToDo",
+				"attached_to_name": self.todo.name,
+			}
+		).insert()
+
+	def test_reads_text_by_file_name(self):
+		file = self._attach("hello resume", "probe.txt")
+
+		result = read_file(file=file.name)
+
+		self.assertEqual(result["text"], "hello resume")
+		self.assertEqual(result["file"], file.name)
+		self.assertEqual(result["length"], len("hello resume"))
+		self.assertNotIn("next_offset", result)
+
+	def test_reads_by_attachment_url(self):
+		file = self._attach("from the url", "probe-url.txt")
+
+		self.assertEqual(read_file(file=file.file_url)["text"], "from the url")
+
+	def test_reads_private_attachment_by_url(self):
+		file = self._attach("private text", "probe-private.txt", is_private=1)
+
+		self.assertEqual(read_file(file=file.file_url)["text"], "private text")
+
+	def test_long_text_is_paged(self):
+		file = self._attach("x" * (MAX_FILE_TEXT_CHARS + 50), "probe-long.txt")
+
+		first = read_file(file=file.name)
+		self.assertEqual(len(first["text"]), MAX_FILE_TEXT_CHARS)
+		self.assertEqual(first["next_offset"], MAX_FILE_TEXT_CHARS)
+
+		rest = read_file(file=file.name, offset=first["next_offset"])
+		self.assertEqual(len(rest["text"]), 50)
+		self.assertNotIn("next_offset", rest)
+
+	def test_limit_is_capped(self):
+		file = self._attach("y" * (MAX_FILE_TEXT_CHARS + 10), "probe-cap.txt")
+
+		self.assertEqual(len(read_file(file=file.name, limit=10_000_000)["text"]), MAX_FILE_TEXT_CHARS)
+
+	def test_unsupported_type_raises(self):
+		file = self._attach("binary-ish", "probe.zip")
+
+		with self.assertRaises(ValueError):
+			read_file(file=file.name)
+
+	def test_missing_file_raises(self):
+		with self.assertRaises(FileNotFoundError):
+			read_file(file="/files/does-not-exist.pdf")
+
+	def test_permission_denied_raises(self):
+		file = self._attach("secret", "probe-secret.txt", is_private=1)
+		frappe.set_user("Guest")
+
+		with self.assertRaises(PermissionError):
+			read_file(file=file.file_url)
 
 
 class TestExecute(IntegrationTestCase):
