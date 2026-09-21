@@ -1,22 +1,30 @@
 # Copyright (c) 2026, Sanskar Technolab and contributors
 # License: MIT. See LICENSE
 
-"""Is the other-app code these agents call actually patched on this site?
+"""Is the other-app code these agents call actually importable on this site?
 
-The agents reach into prompt_hr, and a couple of those call paths are broken on hrms 16 as
-shipped -- see README.md and the patch beside it. A broken one does not fail here, it fails
-inside an agent run, as a stack trace in a Flow Run that reads like the agent's fault.
+The agents used to reach into the standalone prompt_hr app, and a couple of those call paths
+were broken on hrms 16 as shipped -- see README.md and the patch beside it. prompt_hr itself
+is retired now: its doctypes and modules were absorbed into sanskar_erp (module "Sanskar HR"),
+so the checks below point at the sanskar_erp equivalents instead. A broken one does not fail
+here, it fails inside an agent run, as a stack trace in a Flow Run that reads like the agent's
+fault.
 
-`check()` looks for the symptoms rather than the patch: whether the import that moved in
-hrms 16 resolves, and whether the function a commented-out `def` used to swallow is present.
+`check()` looks for the symptoms rather than the patch: whether the import resolves, and
+whether the function a commented-out `def` used to swallow is present.
 """
 
 from __future__ import annotations
 
 import frappe
 
-# Relative to apps/prompt_hr, which is where it has to be applied from.
-FIX = "cd apps/prompt_hr && git apply ../flow/flow/flow_hr/vendor/prompt_hr-hrms16-compat.patch"
+# The prompt_hr-hrms16-compat.patch beside this file targeted apps/prompt_hr, which no longer
+# exists -- kept only as a historical reference, not an active fix instruction.
+FIX = (
+	"prompt_hr is retired; its code now lives in apps/sanskar_erp under the 'Sanskar HR' "
+	"module. If a check below fails, look there rather than reapplying "
+	"prompt_hr-hrms16-compat.patch."
+)
 
 
 def check(verbose: bool = True) -> dict:
@@ -49,20 +57,20 @@ def _hrms_payroll_utils() -> dict:
 
 def _job_offer_imports() -> dict:
 	try:
-		import prompt_hr.py.job_offer
+		import sanskar_erp.api.hooks.doctype.job_offer
 	except ImportError as e:
 		return _result(
-			"prompt_hr.py.job_offer",
+			"sanskar_erp.api.hooks.doctype.job_offer",
 			False,
 			f"module will not import -- Job Offer salary annexures fail: {e}",
 			"Onboarding Agent",
 		)
-	return _result("prompt_hr.py.job_offer", True, "imports cleanly", "Onboarding Agent")
+	return _result("sanskar_erp.api.hooks.doctype.job_offer", True, "imports cleanly", "Onboarding Agent")
 
 
 def _standard_salary_imports() -> dict:
 	try:
-		import prompt_hr.prompt_hr.doctype.employee_standard_salary.employee_standard_salary
+		import sanskar_erp.sanskar_hr.doctype.employee_standard_salary.employee_standard_salary
 	except ImportError as e:
 		return _result(
 			"Employee Standard Salary",

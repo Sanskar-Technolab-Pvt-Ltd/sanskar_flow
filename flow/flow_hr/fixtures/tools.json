@@ -33,6 +33,39 @@
 		"description": "Fetch the transcript of one interview, normalised, whoever recorded it.\n\nWalks the transcript sources configured in Interview Feedback Agent Settings in order and returns the first one that yields dialogue, so you do not need to know -- or ask -- which tool recorded this interview. WebVTT, SRT, JSON exports and plain text all come back in the same shape.\n\nReturns `found`, an `attempts` list saying what was tried and what each source gave back, and when something was found a `transcript` carrying:\n  - `source` and `format`: where it came from and how it was read\n  - `speakers`: each voice with its `role` (Interviewer, Candidate, or null when it could not be established), turn count and word count\n  - `text`: the transcript as `[time] Speaker [Role]: what they said` lines\n  - `total_chars`, `offset`, `next_offset`: call again with `offset = next_offset` to read the rest. A long interview arrives in several windows and the later ones matter most.\n  - `usable`: false when the transcript is too short to assess anyone on\n  - `warnings`: read these. They tell you when a role could not be established.\n\nOnly lines from a speaker whose role is Candidate are evidence about the candidate. If `found` is false, there is nothing to assess -- report the attempts and stop."
 	},
 	{
+		"slug": "interview_skill_score_context",
+		"title": "Interview Skill Score Context",
+		"type": "Imported",
+		"enabled": 1,
+		"requires_confirmation": 0,
+		"import_path": "flow.flow_hr.tools.interview_skill_score.interview_skill_score_context",
+		"code": null,
+		"summary": "Compulsory skills for one PMS Job Applicant Skill Review's designation, and any ratings already recorded.",
+		"description": "Call this first, and call it again after your last record_skill_scores batch to confirm you are actually done. Pass the PMS Job Applicant Skill Review ID (e.g. PMS-JA-REV-2026-00007) -- that is the record this agent's trigger runs against, not the interview schedule. Returns:\n  - `skills`: the exact, complete list of compulsory skills for this review's Appraisal Designation, each with what it means (`what_it_means`). This can be a long list -- some designations carry 30+ compulsory skills -- which is exactly why record_skill_scores takes them in batches rather than all at once.\n  - `already_scored` / `missing`: which of those skills already have a rating row on this review, and which still need one. `missing` is what is actually left to do.\n  - `schedule`: the Sanskar Interview Schedule linked to this review's Interview -- pass this same review ID to interview_skill_score_transcript, which resolves the schedule and its transcript itself.\n  - `asked_skills`: which of these skills were actually put to the candidate as a question on that schedule -- a hint only, from the LiveKit call agent's own record, not something you rate. A skill never asked directly can still be rated if the candidate covered it while answering something else.\n  - `rating_scale`: the four points and what each means.\n  - `how_to_write`: reminds you to call record_skill_scores in batches of 8-12 skills, repeatedly, rather than writing only a text summary.\n  - `guards`: blocking problems (no designation, no compulsory skills configured, review already submitted, no linked schedule). If not empty, do what it says and stop.\n\nRead-only."
+	},
+	{
+		"slug": "interview_skill_score_transcript",
+		"title": "Interview Skill Score Transcript",
+		"type": "Imported",
+		"enabled": 1,
+		"requires_confirmation": 0,
+		"import_path": "flow.flow_hr.tools.interview_skill_score.interview_skill_score_transcript",
+		"code": null,
+		"summary": "The transcript behind one PMS Job Applicant Skill Review.",
+		"description": "Fetch the interview transcript for one PMS Job Applicant Skill Review. Pass the same review ID as interview_skill_score_context -- this tool finds the Sanskar Interview Schedule linked to the review's Interview and reads its transcript for you. There is only one source here -- the LiveKit agent that ran the call writes it directly onto that schedule -- so there is nothing to configure and nothing else to try.\n\nReturns `found` (false when no schedule is linked, or it has no transcript yet -- report that and stop) and, when found, a `transcript` carrying `text` (as `role: what they said` lines), `total_chars`, `offset`, and `next_offset` when there is more to read. Call again with `offset` set to `next_offset` until it stops coming back -- the hard, specific answers are usually in the back half of an interview, and a score based on the first window is a wrong score."
+	},
+	{
+		"slug": "record_skill_scores",
+		"title": "Record Skill Scores",
+		"type": "Imported",
+		"enabled": 1,
+		"requires_confirmation": 1,
+		"import_path": "flow.flow_hr.tools.interview_skill_score.record_skill_scores",
+		"code": null,
+		"summary": "Write one batch of compulsory-skill ratings onto one PMS Job Applicant Skill Review. Call repeatedly until nothing is missing.",
+		"description": "Record one BATCH of ratings for one PMS Job Applicant Skill Review -- 5 to 8 skills is a good batch size. This is NOT a single end-of-run call: a designation can carry 30+ compulsory skills, far more than fits comfortably in one function call, so call this tool AS MANY TIMES AS IT TAKES, each time with a different slice of the compulsory list, until the `missing` field in its response comes back empty.\n\nPass `review` (the same ID used with the other two tools) and `scores`: one entry per skill in THIS batch -- {\"skill\": (the exact skill name), \"rating\": (an integer 1 to 4), \"not_applicable\": (true or false), \"comments\": (a short quote backing it)}. Set `not_applicable` true and omit `rating` when nothing in the transcript -- neither a question nor an answer -- touched that skill; otherwise give a 1-4 rating and leave `not_applicable` false or omitted. `comments` is required either way: for a rating, the line that justifies it; for Not Applicable, a short note on why nothing touched it.\n\nA skill mentioned only inside an answer to a different question is still real evidence -- rate it from there rather than leaving it out because no question named it.\n\nNOT APPLICABLE VS. A RATING OF 1: not_applicable means the transcript never touched this skill at all -- no question, no answer. A rating means the skill WAS raised (asked, or brought up by the candidate) and what they said shows the level given. If your comments for a rated entry amount to \"no discussion of X\" / \"not mentioned\" / \"not covered\" / \"no evidence of X\" -- that is not_applicable, not a low rating, and this call refuses that entry rather than saving a mismarked one.\n\nIt refuses the WHOLE batch, saving nothing from it, if the review is already submitted, a skill in it is not on the compulsory list, a skill appears twice in the same batch, a rating is outside 1-4, a rating has no comments, a rating's own comments describe the skill as never having come up (that is not_applicable, not a rating), or a row carries both a rating and not_applicable. The error names exactly what was wrong -- fix that one thing and call again; a rejected batch does not need every other batch resent.\n\nWrites onto this review's own Skill Ratings table, updating just the compulsory-skill rows THIS batch names -- any other row already there (a human's own extra skill, or a compulsory skill from a different batch) is left exactly as it is. Never submits anything, and never touches the linked Sanskar Interview Schedule or its status -- a human still reviews the ratings before marking the interview Completed. Ending the run without ever calling this tool means NOTHING was saved, no matter how thorough your final text answer looks."
+	},
+	{
 		"slug": "leave_impact_report",
 		"title": "Leave Impact Report",
 		"type": "Imported",

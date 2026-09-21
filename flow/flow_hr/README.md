@@ -1,6 +1,6 @@
 # Flow HR — the HR agent pack
 
-Nine agents that run HR processes on this bench, the tools they call, the triggers that start
+Ten agents that run HR processes on this bench, the tools they call, the triggers that start
 them, and an installer that puts all of it on a site.
 
 Everything in here is either **code** (the tools, the two config doctypes, the desk buttons)
@@ -46,15 +46,17 @@ deliberate decision to leave a trigger switched off.
 | Resume Shortlisting Agent | Job Applicant `after_insert` | Mistral |
 | Interview Scheduling Agent | Job Applicant `on_update` (shortlisted) | Mistral |
 | Interview Feedback Agent | **button** on Interview → Manual trigger | GPT-4.1 |
+| Interview Skill Score Agent | **button** on Sanskar Interview Schedule → Manual trigger | GPT-4.1 |
 | Attendance Agent | Leave Application `after_insert` | GPT-4.1 |
 | Payroll Agent | no trigger — read-only, run from the panel | GPT-4.1 |
 | Offboarding Agent | **button** on the Employee Exit tab → Manual trigger | Mistral |
 | HR Helpdesk Agent | no trigger — answers from the HR Policies knowledge base | Mistral |
 
-Two of them hang off a button rather than a doc event, because their input does not exist when
-the document is saved: a transcript arrives from the recorder minutes or hours later, and
-offboarding needs a relieving date that HR has to type. Both go through
-`flow.triggers.fire_manual()` and the `Manual` Flow Trigger event type.
+Three of them hang off a button rather than a doc event, because their input does not exist
+when the document is saved: a transcript arrives from the recorder minutes or hours later, an
+interview schedule's transcript arrives from the call itself, and offboarding needs a
+relieving date that HR has to type. All three go through `flow.triggers.fire_manual()` and the
+`Manual` Flow Trigger event type.
 
 `Offboarding Agent - Employee Separation Created` ships **disabled** — it is the old
 doc-event route, kept as a record of why the button replaced it. The agent found

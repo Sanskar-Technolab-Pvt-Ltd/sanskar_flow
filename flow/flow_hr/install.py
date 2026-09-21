@@ -195,58 +195,17 @@ def uninstall(keep_knowledge: bool = True, keep_custom_fields: bool = True) -> N
 # Custom fields
 # ==============================================================================
 
-# The transcript landing zone on Interview, and the Exit-tab button on Employee. Both are
-# part of the pack rather than of prompt_hr: without them the agents have no way in.
+# The Exit-tab button on Employee. Part of the pack rather than of prompt_hr: without it the
+# Offboarding Agent has no way in.
+#
+# Interview used to carry a transcript landing zone here (custom_transcript_section and five
+# fields under it) for the Interview Feedback Agent. Those fields were removed from the
+# Interview doctype on 2026-09-21 -- deliberately dropped from this dict too, so a later
+# `install()`/migrate does not silently recreate them. The matching "Field on Interview" rows
+# in DEFAULT_TRANSCRIPT_SOURCES below were removed with them; ingest_transcript() and the two
+# fieldname-based transcript sources in tools/interview_feedback.py now have nothing to write
+# to or read from -- see that module before re-enabling the "Field on Interview" source type.
 CUSTOM_FIELDS: dict[str, list[dict[str, Any]]] = {
-	"Interview": [
-		{
-			"fieldname": "custom_transcript_section",
-			"label": "Interview Transcript",
-			"fieldtype": "Section Break",
-			"insert_after": "interview_summary",
-			"collapsible": 1,
-		},
-		{
-			"fieldname": "custom_transcript_text",
-			"label": "Transcript Text",
-			"fieldtype": "Long Text",
-			"insert_after": "custom_transcript_section",
-			"description": "Paste the transcript here, or let the recorder's integration file it. Read by the Interview Feedback Agent.",
-		},
-		{
-			"fieldname": "custom_transcript_file",
-			"label": "Transcript File",
-			"fieldtype": "Attach",
-			"insert_after": "custom_transcript_text",
-			"description": "A transcript export -- .vtt, .srt, .txt, .json, .docx or .pdf all read fine.",
-		},
-		{
-			"fieldname": "custom_column_break_transcript",
-			"fieldtype": "Column Break",
-			"insert_after": "custom_transcript_file",
-		},
-		{
-			"fieldname": "custom_transcript_external_ref",
-			"label": "External Transcript Reference",
-			"fieldtype": "Data",
-			"insert_after": "custom_column_break_transcript",
-			"description": "The recording's id in the tool that made it -- a Teams meeting id, a Zoom recording id, a vendor job id. An HTTP Endpoint transcript source can fetch by this without the text ever being stored here.",
-		},
-		{
-			"fieldname": "custom_transcript_source",
-			"label": "Transcript Filed By",
-			"fieldtype": "Data",
-			"insert_after": "custom_transcript_external_ref",
-			"read_only": 1,
-		},
-		{
-			"fieldname": "custom_transcript_received_on",
-			"label": "Transcript Received On",
-			"fieldtype": "Datetime",
-			"insert_after": "custom_transcript_source",
-			"read_only": 1,
-		},
-	],
 	"Employee": [
 		{
 			"fieldname": "custom_start_offboarding",
@@ -512,21 +471,11 @@ def _install_triggers() -> list[str]:
 # The starting source list. Deliberately only the sources that need no credentials and no
 # provider knowledge, in the order that trusts a human's paste over a machine's export.
 # Everything else -- Teams, Zoom, Meet, a note-taker's API -- is a row added later.
+#
+# The two "Field on Interview" rows that used to lead this list (custom_transcript_text,
+# custom_transcript_file) were removed on 2026-09-21 along with the fields themselves -- see
+# the note above CUSTOM_FIELDS. Attachment-based sources are what is left on a fresh install.
 DEFAULT_TRANSCRIPT_SOURCES = [
-	{
-		"source_label": "Transcript text on Interview",
-		"source_type": "Field on Interview",
-		"fieldname": "custom_transcript_text",
-		"transcript_format": "Auto",
-		"notes": "What a recruiter pastes onto the Interview. First because a human put it there on purpose.",
-	},
-	{
-		"source_label": "Transcript file on Interview",
-		"source_type": "Field on Interview",
-		"fieldname": "custom_transcript_file",
-		"transcript_format": "Auto",
-		"notes": "The Transcript File field. Handles .vtt/.srt/.txt/.json directly and pdf/docx through the extractor.",
-	},
 	{
 		"source_label": "Transcript attachment on Interview",
 		"source_type": "Attachment on Interview",

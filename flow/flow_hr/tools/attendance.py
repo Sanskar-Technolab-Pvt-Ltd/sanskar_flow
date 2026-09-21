@@ -606,7 +606,7 @@ def _leave_balance(employee, leave_type, f_date, t_date, days_requested, lt_rule
 	error = None
 	try:
 		result = frappe.call(
-			"prompt_hr.py.leave_application.custom_get_leave_balance_on",
+			"sanskar_erp.api.hooks.doctype.leave_application.custom_get_leave_balance_on",
 			employee=employee,
 			leave_type=leave_type,
 			date=f_date,
@@ -634,7 +634,7 @@ def _leave_balance(employee, leave_type, f_date, t_date, days_requested, lt_rule
 		"days_requested": flt(days_requested),
 		"balance_after": (flt(balance) - flt(days_requested)) if balance is not None else None,
 		"sufficient": True if lt_rules["is_lwp"] else (consumable is not None and consumable >= flt(days_requested)),
-		"source": "prompt_hr.py.leave_application.custom_get_leave_balance_on",
+		"source": "sanskar_erp.api.hooks.doctype.leave_application.custom_get_leave_balance_on",
 		"error": error,
 	}
 

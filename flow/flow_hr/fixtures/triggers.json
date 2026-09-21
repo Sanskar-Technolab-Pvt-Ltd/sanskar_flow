@@ -110,5 +110,19 @@
 		"run_as": "Administrator",
 		"condition": null,
 		"prompt_template": "Draft the interview feedback for Interview {{ doc.name }} from its transcript.\n\nInterview: {{ doc.name }}\nInterview Type: {{ doc.interview_type }}\nCandidate: {{ doc.custom_applicant_name or doc.job_applicant }} (Job Applicant {{ doc.job_applicant }})\nDesignation: {{ doc.designation }}\nHeld on: {{ doc.scheduled_on }} {{ doc.from_time }} to {{ doc.to_time }}\nCurrent status: {{ doc.status }}\nTranscript filed by: {{ doc.custom_transcript_source or \"unknown\" }}{% if doc.custom_transcript_received_on %} on {{ doc.custom_transcript_received_on }}{% endif %}\n\nStart with interview_feedback_context, read the transcript to the end, then record the assessment in one call."
+	},
+	{
+		"name": "Interview Skill Score Agent - Score Requested",
+		"title": "Interview Skill Score Agent - Score Requested",
+		"enabled": 1,
+		"agent": "Interview Skill Score Agent",
+		"event": "Manual",
+		"doc_event": null,
+		"target_doctype": "PMS Job Applicant Skill Review",
+		"cron_expression": null,
+		"auto_approve": 1,
+		"run_as": "Administrator",
+		"condition": null,
+		"prompt_template": "Score the compulsory PMS skills on PMS Job Applicant Skill Review {{ doc.name }} from the transcript of the interview behind it.\n\nReview: {{ doc.name }}\nJob Applicant: {{ doc.job_applicant }}\nAppraisal Designation: {{ doc.appraisal_designation }}\nReview Type: {{ doc.review_type }}\n\nStart with interview_skill_score_context using this review ID, read the transcript to the end (interview_skill_score_transcript resolves it from the same review ID), then record scores for every compulsory skill in one call."
 	}
 ]
