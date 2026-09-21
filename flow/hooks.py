@@ -60,10 +60,4 @@ scheduler_events = {
 
 after_migrate = ["flow.assistant.sync_builtin_assistant"]
 
-# Desk-side entry points for the agents that hang off a button rather than a doc event.
-doctype_js = {
-	"Employee": "public/js/employee_offboarding.js",
-	"Interview": "public/js/interview_feedback_agent.js",
-}
-
 extend_bootinfo = "flow.boot.boot_session"
