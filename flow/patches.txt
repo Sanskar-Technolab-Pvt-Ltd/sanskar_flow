@@ -8,4 +8,3 @@ flow.patches.v1_0.create_flow_hr_module
 # Patches added in this section will be executed after doctypes are migrated
 flow.patches.remove_frontend_tooling
 flow.patches.v1_0.move_interview_feedback_doctypes
-flow.patches.v1_0.install_hr_agent_pack
