@@ -58,18 +58,6 @@ scheduler_events = {
 	},
 }
 
-# The HR agent pack (agents, tools, triggers, knowledge) is data, not schema, so `bench
-# migrate` cannot pick it up from a DocType file. `after_install` covers a fresh
-# `bench install-app flow`; `flow.patches.v1_0.install_hr_agent_pack` covers every site
-# where flow is already installed. Both call the same idempotent installer.
-after_install = "flow.flow_hr.install.after_install"
-
 after_migrate = ["flow.assistant.sync_builtin_assistant"]
-
-# Desk-side entry points for the agents that hang off a button rather than a doc event.
-doctype_js = {
-	"Employee": "public/js/employee_offboarding.js",
-	"Interview": "public/js/interview_feedback_agent.js",
-}
 
 extend_bootinfo = "flow.boot.boot_session"
